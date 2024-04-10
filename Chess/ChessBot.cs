@@ -33,7 +33,6 @@ namespace Chess
             convolution2.Connect(pool1, new int[] { -1, 1 }, 1);
             fullyConnected1 = new Layer(3, 128);
             fullyConnected1.Connect(convolution2);
-            fullyConnected1.Connect(input.neurons[0]);
             fullyConnected2 = new Layer(3, 128);
             fullyConnected2.Connect(fullyConnected1);
 
@@ -43,7 +42,6 @@ namespace Chess
         public void TakeTurn()
         {
             moves = new List<Move>();
-            input.neurons[0].output = Program.currentTurn;
             Kasparov.input.neurons[0].output = Program.currentTurn;
 
             for (int x = 0; x < 8; x++)
@@ -54,8 +52,8 @@ namespace Chess
 
                     if (p != null)
                     {
-                        input.neuronGrid[x][y].output = p.type * p.color;
-                        Kasparov.input.neuronGrid[x][y].output = p.type * p.color;
+                        input.neuronGrid[x][y].output = p.type * p.color * Program.currentTurn;
+                        Kasparov.input.neuronGrid[x][y].output = p.type * p.color * Program.currentTurn;
                         if (p.color == Program.currentTurn)
                         {
                             foreach (int[] m in p.availableMoves)
@@ -75,8 +73,6 @@ namespace Chess
             output = new Layer(4, moves.Count());
             output.Connect(fullyConnected2);
 
-            Kasparov.Evaluate(moves.Count());
-
             convolution1.Activate();
             pool1.Activate();
             convolution2.Activate();
@@ -95,6 +91,9 @@ namespace Chess
                     moveIndex = output.neurons.IndexOf(n);
                 }
             }
+
+            Kasparov.input.neurons[0].output = moveIndex;
+            Kasparov.Evaluate(moves.Count());
 
             moves[moveIndex].piece.Move(moves[moveIndex].move);
         }

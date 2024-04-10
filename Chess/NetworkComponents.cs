@@ -28,16 +28,6 @@ namespace Chess
             weights = new List<Connection>();
         }
 
-        public void Connect(Neuron n)
-        {
-            weights.Add(new Connection(n));
-        }
-
-        public void Connect(double w, Neuron n)
-        {
-            weights.Add(new Connection(w, n));
-        }
-
         public void CalculateOutput()
         {
             double tempOutput = 0;
@@ -123,14 +113,6 @@ namespace Chess
             }
         }
 
-        public void Connect(Neuron previousNeuron)
-        {
-            foreach(Neuron n in neurons)
-            {
-                n.weights.Add(new Connection(previousNeuron));
-            }
-        }
-
         public void Connect(Layer previousLayer)
         {
             foreach(Neuron n in neurons)
@@ -142,7 +124,8 @@ namespace Chess
                         n.weights.Add(new Connection(pn));
                     }
                 }
-                else
+                
+                if (previousLayer.neuronGrid != null)
                 {
                     for (int x = 0; x < previousLayer.neuronGrid.Count(); x++)
                     {

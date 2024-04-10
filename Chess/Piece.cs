@@ -101,12 +101,19 @@ namespace Chess
                 if (move[0] >= 0 & move[0] < 8 & move[1] >= 0 & move[1] < 8)
                 {
                     List<int[]> realMoves = new List<int[]>();
+                    Piece takenPiece = null;
+                    int index = 0;
+
+                    if (!forCastle)
+                    {
+                        takenPiece = Program.pieces.Find(x => x.position[0] == move[0] & x.position[1] == move[1]);
+                        index = Program.pieces.IndexOf(takenPiece);
+                        if (takenPiece != null) { Program.pieces.Remove(takenPiece); }
+                    }
+
                     position = move;
 
                     king = Program.pieces.Find(x => x.color == color & x.type == 5).position;
-                    Piece takenPiece = Program.pieces.Find(x => x.position[0] == move[0] & x.position[1] == move[1]);
-                    int index = Program.pieces.IndexOf(takenPiece);
-                    if (takenPiece != null) { Program.pieces.Remove(takenPiece); }
 
                     foreach (Piece piece in Program.pieces)
                     {
@@ -132,7 +139,7 @@ namespace Chess
                         }
                     }
 
-                    Program.pieces.Insert(index, takenPiece);
+                    if (takenPiece != null) { Program.pieces.Insert(index, takenPiece); }
                 }
                 else { newAvailableMoves.Remove(move); }
             }

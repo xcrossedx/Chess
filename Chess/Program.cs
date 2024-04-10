@@ -33,7 +33,7 @@ namespace Chess
                 DrawBoard();
                 while (playing)
                 {
-                    TakeTurn();
+                    PlayGame();
                 }
                 ClearGame();
             }
@@ -126,7 +126,7 @@ namespace Chess
             }
         }
 
-        static void TakeTurn()
+        static void PlayGame()
         {
             turnTaken = false;
 
@@ -141,15 +141,11 @@ namespace Chess
             {
                 if (currentTurn == player)
                 {
-                    while (!turnTaken)
-                    {
-                        TakeInput();
-                        CheckForValidSelection(player);
-                        DrawBoard();
-                    }
+                    TakeTurn();
                 }
                 else
                 {
+                    //TakeTurn();
                     Magnus.TakeTurn();
                 }
 
@@ -162,6 +158,16 @@ namespace Chess
                 currentTurn *= -1;
             }
             else { Console.ReadKey(true); }
+        }
+
+        static void TakeTurn()
+        {
+            while (!turnTaken)
+            {
+                TakeInput();
+                CheckForValidSelection(currentTurn);
+                DrawBoard();
+            }
         }
 
         static void CheckMoves(int pass)
