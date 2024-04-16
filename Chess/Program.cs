@@ -2,9 +2,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
+using System.Threading;
 using System.Diagnostics;
 using System.Net.Mime;
+using System.IO;
+using Newtonsoft.Json;
 
 namespace Chess
 {
@@ -20,6 +22,7 @@ namespace Chess
         public static int[] selectedPiece = new int[] { -1, -1 };
         public static Random rng = new Random();
         public static ChessBot Magnus;
+        public static int round = 0;
 
         public static List<Piece> pieces = new List<Piece>();
         static void Main()
@@ -36,6 +39,13 @@ namespace Chess
                     PlayGame();
                 }
                 ClearGame();
+                if (round < 1) { round++; }
+                else
+                {
+                    Magnus.Train();
+                    round = 0;
+                    SaveNetworks();
+                }
             }
         }
 
@@ -46,6 +56,8 @@ namespace Chess
             Console.CursorVisible = false;
             Console.OutputEncoding = Encoding.UTF8;
             Magnus = new ChessBot();
+
+            CheckForNetworks();
         }
 
         static void AssignPlayers()
@@ -141,12 +153,13 @@ namespace Chess
             {
                 if (currentTurn == player)
                 {
-                    TakeTurn();
+                    //TakeTurn();
+                    Magnus.TakeTurn(true);
                 }
                 else
                 {
                     //TakeTurn();
-                    Magnus.TakeTurn();
+                    Magnus.TakeTurn(true);
                 }
 
                 if (selectedPiece[0] != -1)
@@ -157,14 +170,15 @@ namespace Chess
                 DrawBoard();
                 currentTurn *= -1;
             }
-            else { Console.ReadKey(true); }
+            else { //Console.ReadKey(true);
+                   }
         }
 
         static void TakeTurn()
         {
             while (!turnTaken)
             {
-                TakeInput();
+                TakeInput(true);
                 CheckForValidSelection(currentTurn);
                 DrawBoard();
             }
@@ -183,45 +197,50 @@ namespace Chess
             }
         }
 
-        static void TakeInput()
+        static void TakeInput(bool inGame)
         {
             ConsoleKey input = Console.ReadKey(true).Key;
 
-            if ((input == ConsoleKey.UpArrow & player == 1) | (input == ConsoleKey.DownArrow & player == -1))
+            if (inGame)
             {
-                selector[0] = (selector[0] + 1) % 8;
-            }
-            else if ((input == ConsoleKey.DownArrow & player == 1) | (input == ConsoleKey.UpArrow & player == -1))
-            {
-                selector[0] = (selector[0] + 7) % 8;
-            }
-            else if ((input == ConsoleKey.RightArrow & player == 1) | (input == ConsoleKey.LeftArrow & player == -1))
-            {
-                selector[1] = (selector[1] + 1) % 8;
-            }
-            else if ((input == ConsoleKey.LeftArrow & player == 1) | (input == ConsoleKey.RightArrow & player == -1))
-            {
-                selector[1] = (selector[1] + 7) % 8;
-            }
-            else if (input == ConsoleKey.Enter | input == ConsoleKey.Spacebar)
-            {
-                if (selectedPiece[0] == -1 & validSelection)
+                if ((input == ConsoleKey.UpArrow & player == 1) | (input == ConsoleKey.DownArrow & player == -1))
                 {
-                    selectedPiece = new int[] { selector[0], selector[1] };
+                    selector[0] = (selector[0] + 1) % 8;
                 }
-                else if (selector[0] == selectedPiece[0] & selector[1] == selectedPiece[1])
+                else if ((input == ConsoleKey.DownArrow & player == 1) | (input == ConsoleKey.UpArrow & player == -1))
                 {
-                    selectedPiece = new int[] { -1, -1 };
+                    selector[0] = (selector[0] + 7) % 8;
                 }
-                else if (validSelection)
+                else if ((input == ConsoleKey.RightArrow & player == 1) | (input == ConsoleKey.LeftArrow & player == -1))
                 {
-                    turnTaken = true;
+                    selector[1] = (selector[1] + 1) % 8;
+                }
+                else if ((input == ConsoleKey.LeftArrow & player == 1) | (input == ConsoleKey.RightArrow & player == -1))
+                {
+                    selector[1] = (selector[1] + 7) % 8;
+                }
+                else if (input == ConsoleKey.Enter | input == ConsoleKey.Spacebar)
+                {
+                    if (selectedPiece[0] == -1 & validSelection)
+                    {
+                        selectedPiece = new int[] { selector[0], selector[1] };
+                    }
+                    else if (selector[0] == selectedPiece[0] & selector[1] == selectedPiece[1])
+                    {
+                        selectedPiece = new int[] { -1, -1 };
+                    }
+                    else if (validSelection)
+                    {
+                        turnTaken = true;
+                    }
                 }
             }
-            else if (input == ConsoleKey.Escape)
+            
+            if (input == ConsoleKey.Escape)
             {
+                SaveNetworks();
                 playing = false;
-
+                exit = true;
             }
         }
 
@@ -267,12 +286,150 @@ namespace Chess
                     Console.Write("Stalemate!");
                 }
             }
+            else if (pieces.Count() == 2)
+            {
+                playing = false;
+                Console.SetCursorPosition(3, 10);
+                Console.ForegroundColor = ConsoleColor.Black;
+                Console.BackgroundColor = ConsoleColor.Red;
+                Console.Write("Stalemate!");
+            }
         }
 
         static void ClearGame()
         {
             Console.BackgroundColor = ConsoleColor.Black;
             Console.Clear();
+        }
+
+        static void SaveNetworks()
+        {
+            List<double> weights = new List<double>();
+            List<double> biases = new List<double>();
+
+            FindValues(Magnus.network);
+
+            File.WriteAllText("policyBias.json", JsonConvert.SerializeObject(biases));
+            File.WriteAllText("policyWeights.json", JsonConvert.SerializeObject(weights));
+
+            FindValues(Magnus.Kasparov.network);
+
+            File.WriteAllText("qBias.json", JsonConvert.SerializeObject(biases));
+            File.WriteAllText("qWeights.json", JsonConvert.SerializeObject(weights));
+
+            FindValues(Magnus.targetKasparov.network);
+
+            File.WriteAllText("targetQBias.json", JsonConvert.SerializeObject(biases));
+            File.WriteAllText("targetQWeights.json", JsonConvert.SerializeObject(weights));
+
+            void FindValues(List<Layer> network)
+            {
+                foreach (Layer layer in network)
+                {
+                    if (layer.neurons != null)
+                    {
+                        foreach (Neuron neuron in layer.neurons)
+                        {
+                            biases.Add(neuron.bias);
+
+                            foreach (Connection connection in neuron.weights)
+                            {
+                                weights.Add(connection.weight);
+                            }
+                        }
+                    }
+
+                    if (layer.neuronGrid != null)
+                    {
+                        foreach (List<Neuron> list in layer.neuronGrid)
+                        {
+                            foreach (Neuron neuron in list)
+                            {
+                                biases.Add(neuron.bias);
+
+                                foreach (Connection connection in neuron.weights)
+                                {
+                                    weights.Add(connection.weight);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        static void CheckForNetworks()
+        {
+            List<double> biases = new List<double>();
+            List<double> weights = new List<double>();
+
+            if (File.Exists("policyBias.json"))
+            {
+                biases = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("policyBias.json"));
+                weights = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("policyWeights.json"));
+
+                ApplyValues(Magnus.network);
+
+                biases = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("qBias.json"));
+                weights = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("qWeights.json"));
+
+                ApplyValues(Magnus.Kasparov.network);
+
+                biases = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("targetQBias.json"));
+                weights = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("targetQWeights.json"));
+
+                ApplyValues(Magnus.targetKasparov.network);
+            }
+            else
+            {
+                File.Create("policyBias.json");
+                File.Create("policyWeights.json");
+                File.Create("qBias.json");
+                File.Create("qWeights.json");
+                File.Create("targetQBias.json");
+                File.Create("targetQWeights.json");
+            }
+
+            void ApplyValues(List<Layer> network)
+            {
+                int biasIndex = 0;
+                int weightIndex = 0;
+
+                for (int layer = 0; layer < network.Count(); layer++)
+                {
+                    if (network[layer].neurons != null)
+                    {
+                        for (int neuron = 0; neuron < network[layer].neurons.Count(); neuron++)
+                        {
+                            network[layer].neurons[neuron].bias = biases[biasIndex];
+                            biasIndex++;
+
+                            for (int connection = 0; connection < network[layer].neurons[neuron].weights.Count(); connection++)
+                            {
+                                network[layer].neurons[neuron].weights[connection].weight = weights[weightIndex];
+                                weightIndex++;
+                            }
+                        }
+                    }
+
+                    if (network[layer].neuronGrid != null)
+                    {
+                        for (int list = 0; list < network[layer].neuronGrid.Count(); list++)
+                        {
+                            for (int neuron = 0; neuron < network[layer].neuronGrid[list].Count(); neuron++)
+                            {
+                                network[layer].neuronGrid[list][neuron].bias = biases[biasIndex];
+
+                                for (int connection = 0; connection < network[layer].neuronGrid[list][neuron].weights.Count(); connection++)
+                                {
+                                    network[layer].neuronGrid[list][neuron].weights[connection].weight = weights[weightIndex];
+                                    weightIndex++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -10,32 +10,34 @@ namespace Chess
 {
     class Trainer
     {
-        public Layer input;
-        Layer fullyConnected1;
-        Layer fullyConnected2;
-        Layer fullyConnected3;
-        public Layer output;
+        public List<Layer> network;
 
         public Trainer()
         {
-            input = new Layer(0, 8);
-            fullyConnected1 = new Layer(3, 128);
-            fullyConnected1.Connect(input);
-            fullyConnected2 = new Layer(3, 128);
-            fullyConnected2.Connect(fullyConnected1);
-            fullyConnected3 = new Layer(3, 128);
-            fullyConnected3.Connect(fullyConnected2);
+            network = new List<Layer>();
+
+            network.Add(new Layer(0, 8));
+            network.Add(new Layer(3, 128));
+            network[1].Connect(network[0]);
+            network.Add(new Layer(3, 128));
+            network[2].Connect(network[1]);
+            network.Add(new Layer(3, 128));
+            network[3].Connect(network[2]);
         }
 
         public void Evaluate(int size)
         {
-            output = new Layer(4, size);
-            output.Connect(fullyConnected3);
+            if (network.Count() == 4)
+            {
+                network.Add(new Layer(4, size));
+            }
+            else { network[4] = new Layer(4, size); }
+            network[4].Connect(network[3]);
 
-            fullyConnected1.Activate();
-            fullyConnected2.Activate();
-            fullyConnected3.Activate();
-            output.Activate();
+            network[1].Activate();
+            network[2].Activate();
+            network[3].Activate();
+            network[4].Activate();
         }
     }
 }

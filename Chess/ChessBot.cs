@@ -5,44 +5,51 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using System.IO;
+using System.Data.SQLite;
+using Newtonsoft.Json;
 
 namespace Chess
 {
     class ChessBot
     {
-        Layer input;
-        Layer convolution1;
-        Layer pool1;
-        Layer convolution2;
-        Layer fullyConnected1;
-        Layer fullyConnected2;
-        Layer output;
+        public List<Layer> network;
+        public int iteration = 0;
 
         List<Move> moves;
+        int reward;
 
-        Trainer Kasparov;
+        public Trainer Kasparov;
+        public Trainer targetKasparov;
+
+        Recorder Levy;
 
         public ChessBot()
         {
-            input = new Layer(0, 8);
-            convolution1 = new Layer(1, 8);
-            convolution1.Connect(input, new int[] { -2, 2 }, 1);
-            pool1 = new Layer(2, 4);
-            pool1.Connect(convolution1, new int[] { 0, 1 }, 2);
-            convolution2 = new Layer(1, 4);
-            convolution2.Connect(pool1, new int[] { -1, 1 }, 1);
-            fullyConnected1 = new Layer(3, 128);
-            fullyConnected1.Connect(convolution2);
-            fullyConnected2 = new Layer(3, 128);
-            fullyConnected2.Connect(fullyConnected1);
+            network = new List<Layer>();
+            network.Add(new Layer(0, 8));
+            network.Add(new Layer(1, 8));
+            network[1].Connect(network[0], new int[] { -2, 2 }, 1);
+            network.Add(new Layer(2, 4));
+            network[2].Connect(network[1], new int[] { 0, 1 }, 2);
+            network.Add(new Layer(1, 4));
+            network[3].Connect(network[2], new int[] { -1, 1 }, 1);
+            network.Add(new Layer(3, 128));
+            network[4].Connect(network[3]);
+            network.Add(new Layer(3, 128));
+            network[5].Connect(network[4]);
 
             Kasparov = new Trainer();
+            targetKasparov = new Trainer();
+            Levy = new Recorder();
         }
 
-        public void TakeTurn()
+        public void TakeTurn(bool vsSelf)
         {
             moves = new List<Move>();
-            Kasparov.input.neurons[0].output = Program.currentTurn;
+            double max = 0;
+            int moveIndex = 0;
+
+            double epsilon = 10 + 990 * Math.Exp(-0.25 * iteration);
 
             for (int x = 0; x < 8; x++)
             {
@@ -52,8 +59,8 @@ namespace Chess
 
                     if (p != null)
                     {
-                        input.neuronGrid[x][y].output = p.type * p.color * Program.currentTurn;
-                        Kasparov.input.neuronGrid[x][y].output = p.type * p.color * Program.currentTurn;
+                        network[0].neuronGrid[x][y].output = (p.type + 1) * p.color * Program.currentTurn;
+                        Kasparov.network[0].neuronGrid[x][y].output = (p.type + 1) * p.color * Program.currentTurn;
                         if (p.color == Program.currentTurn)
                         {
                             foreach (int[] m in p.availableMoves)
@@ -64,47 +71,63 @@ namespace Chess
                     }
                     else
                     {
-                        input.neuronGrid[x][y].output = 0;
-                        Kasparov.input.neuronGrid[x][y].output = 0;
+                        network[0].neuronGrid[x][y].output = 0;
+                        Kasparov.network[0].neuronGrid[x][y].output = 0;
                     }
                 }
             }
 
-            output = new Layer(4, moves.Count());
-            output.Connect(fullyConnected2);
-
-            convolution1.Activate();
-            pool1.Activate();
-            convolution2.Activate();
-            fullyConnected1.Activate();
-            fullyConnected2.Activate();
-            output.Activate();
-
-            double max = 0;
-            int moveIndex = 0;
-
-            foreach(Neuron n in output.neurons)
+            if (Program.rng.Next(0, 1000) > epsilon)
             {
-                if (n.output > max)
+                if (network.Count == 6)
                 {
-                    max = n.output;
-                    moveIndex = output.neurons.IndexOf(n);
+                    network.Add(new Layer(4, moves.Count()));
+                }
+                else
+                {
+                    network[6] = new Layer(4, moves.Count());
+                }
+                network[6].Connect(network[5]);
+
+                network[1].Activate();
+                network[2].Activate();
+                network[3].Activate();
+                network[4].Activate();
+                network[5].Activate();
+                network[6].Activate();
+
+                foreach (Neuron n in network[6].neurons)
+                {
+                    if (n.output > max)
+                    {
+                        max = n.output;
+                        moveIndex = network[6].neurons.IndexOf(n);
+                    }
                 }
             }
+            else { moveIndex = Program.rng.Next(0, moves.Count()); }
 
-            Kasparov.input.neurons[0].output = moveIndex;
             Kasparov.Evaluate(moves.Count());
+            targetKasparov.Evaluate(moves.Count());
+
+            Levy.Record(network[0], moveIndex, vsSelf);
 
             moves[moveIndex].piece.Move(moves[moveIndex].move);
         }
 
-        public void SaveValues()
+        public void Train()
         {
+            iteration++;
+            int max = Levy.FindMaxReplayID();
+            List<int> batch = new List<int>();
 
-        }
+            while (batch.Count() < 100)
+            {
+                int sample = Program.rng.Next(0, max);
 
-        public void LoadValues()
-        {
+                if (!batch.Contains(sample)) { batch.Add(sample); }
+            }
+
             
         }
     }
