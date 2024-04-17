@@ -346,12 +346,14 @@ namespace Chess
 
         public void Move(int[] p)
         {
+            if (type == 0) { Program.turnCount = 0; }
             if (type == 0 & ((color == 1 & p[0] == 5) | (color == -1 & p[0] == 2)) & p[1] != position[1] & !Program.pieces.Exists(x => x.position[0] == p[0] & x.position[1] == p[1]))
             {
-                if (color == 1) { Program.pieces.Remove(Program.pieces.Find(x => x.position[0] == 4 & x.position[1] == p[1])); }
-                else { Program.pieces.Remove(Program.pieces.Find(x => x.position[0] == 3 & x.position[1] == p[1])); }
+                if (color == 1) { Program.pieces.Remove(Program.pieces.Find(x => x.position[0] == 4 & x.position[1] == p[1])); Program.turnCount = 0; }
+                else { Program.pieces.Remove(Program.pieces.Find(x => x.position[0] == 3 & x.position[1] == p[1])); Program.turnCount = 0; }
             }
-            Program.pieces.Remove(Program.pieces.Find(x => x.position[0] == p[0] & x.position[1] == p[1]));
+            Piece taken = Program.pieces.Find(x => x.position[0] == p[0] & x.position[1] == p[1]);
+            if (taken != null) { Program.pieces.Remove(taken); Program.turnCount = 0; }
             if (type == 5 & moved == false)
             {
                 if (p[1] == 6)

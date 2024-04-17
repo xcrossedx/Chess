@@ -27,13 +27,6 @@ namespace Chess
             weights = new List<Connection>();
         }
 
-        public Neuron(int t, double b)
-        {
-            type = t;
-            bias = b;
-            weights = new List<Connection>();
-        }
-
         public void CalculateOutput()
         {
             double tempOutput = 0;
@@ -71,7 +64,7 @@ namespace Chess
             neuron = n;
         }
 
-        public Connection(double w, Neuron n)
+        public Connection(Neuron n, double w)
         {
             weight = w;
             neuron = n;
@@ -126,7 +119,8 @@ namespace Chess
                 {
                     foreach (Neuron pn in previousLayer.neurons)
                     {
-                        n.weights.Add(new Connection(pn));
+                        if (type != 4) { n.weights.Add(new Connection(pn)); }
+                        else { n.weights.Add(new Connection(pn, 0.1)); }
                     }
                 }
 
@@ -181,44 +175,32 @@ namespace Chess
                 }
             }
         }
-
-        public void Softmax()
-        {
-            double[] outputExponentials = neurons.Select(n => Math.Exp(n.output)).ToArray();
-            double exponentialsSum = outputExponentials.Sum();
-            foreach (Neuron n in neurons)
-            {
-                n.output = n.output / exponentialsSum;
-            }
-        }
     }
 
     class Recorder
     {
         int[] state1A;
         int[] state1B;
+        int moveCountA;
+        int moveCountB;
         int actionA;
         int actionB;
         double rewardA;
         double rewardB;
         int[] state2A;
         int[] state2B;
-        int id;
+        public int id;
         char set;
 
         List<double[]> exponentials;
 
         public Recorder()
         {
-            actionA = -1;
-            actionB = -1;
-            rewardA = -1;
-            rewardB = -1;
             ClearStates('A');
             ClearStates('B');
             id = 0;
             set = 'A';
-            CreateDatabase();
+            CreateDatabase(false);
             exponentials = new List<double[]>();
             exponentials.AddRange(new double[10][] { new double[2] { -5, 4 }, new double[2] { -4, 2 }, new double[2] { -3, 2 }, new double[2] { -2, 3 }, new double[2] { -1, 1 }, new double[2] { 1, 1.25 }, new double[2] { 2, 3.25 }, new double[2] { 3, 2.25 }, new double[2] { 4, 2.25 }, new double[2] { 5, 4.25 } });
         }
@@ -231,6 +213,9 @@ namespace Chess
                 state2A = new int[64];
                 state1A[0] = -1;
                 state2A[1] = -1;
+                actionA = -1;
+                rewardA = -1;
+                moveCountA = 0;
             }
             if (states == 'B')
             {
@@ -238,14 +223,18 @@ namespace Chess
                 state2B = new int[64];
                 state1B[0] = -1;
                 state2B[0] = -1;
+                actionB = -1;
+                rewardB = -1;
+                moveCountB = 0;
             }
         }
 
-        void CreateDatabase()
+        public void CreateDatabase(bool overwrite)
         {
-            if (!File.Exists("replayBuffer.db"))
+            if (!File.Exists("replayBuffer.db") | overwrite)
             {
                 File.Create("replayBuffer.db");
+                id = 0;
             }
             else
             {
@@ -270,33 +259,53 @@ namespace Chess
             }
         }
 
-        public void Record(Layer input, int action, bool vsSelf)
+        public void SetReward(double reward)
+        {
+            if (set == 'A')
+            {
+                if (Math.Abs(rewardA) >= 50) { rewardA += reward; }
+                else { rewardA = reward; }
+            }
+            else if (set == 'B')
+            {
+                if (Math.Abs(rewardB) >= 50) { rewardB += reward; }
+                else { rewardB = reward; }
+            }
+        }
+
+        public void Record(Layer input, int action, int moveCount, bool vsSelf)
         {
             if (state1A[0] == -1)
             {
                 state1A = (int[])ConvertInputs().Clone();
                 actionA = action;
+                moveCountA = moveCount;
             }
             else if (state1B[0] == -1 & set == 'B')
             {
                 state1B = (int[])ConvertInputs().Clone();
                 actionB = action;
+                moveCountB = moveCount;
             }
             else if (set == 'A')
             {
                 state2A = (int[])ConvertInputs().Clone();
-                rewardA = FindReward(state1A, state2A);
-                Save();
+                SetReward(FindReward(state1A, state2A));
+                Save(moveCount);
                 id++;
                 state1A = (int[])state2A.Clone();
+                actionA = action;
+                moveCountA = moveCount;
             }
             else if (set == 'B')
             {
                 state2B = (int[])ConvertInputs().Clone();
-                rewardB = FindReward(state1B, state2B);
-                Save();
+                SetReward(FindReward(state1B, state2B));
+                Save(moveCount);
                 id++;
                 state1B = (int[])state2B.Clone();
+                actionB = action;
+                moveCountB = moveCount;
             }
 
             if (vsSelf)
@@ -345,23 +354,37 @@ namespace Chess
             }
         }
 
-        public void Save()
+        public void Save(int moveCount)
         {
             using(var connection = new SQLiteConnection(@"Data Source=replayBuffer.db;Version=3;"))
             {
-                connection.Open();
+                bool open = false;
+                while (!open)
+                {
+                    try
+                    {
+                        connection.Open();
+                        open = true;
+                    }
+                    catch
+                    {
+                        CreateDatabase(true);
+                        open = false;
+                    }
+                }
 
-                using(var command = new SQLiteCommand("CREATE TABLE IF NOT EXISTS ReplayBuffer (Id INTEGER PRIMARY KEY, State TEXT, Action INTEGER, Reward DOUBLE, NextState TEXT)", connection))
+                using(var command = new SQLiteCommand("CREATE TABLE IF NOT EXISTS ReplayBuffer (Id INTEGER PRIMARY KEY, State TEXT, AvailableActions INTEGER, Action INTEGER, Reward DOUBLE, NextState TEXT, NextAvailableActions INTEGER)", connection))
                 {
                     command.ExecuteNonQuery();
                 }
 
-                using (var command = new SQLiteCommand("INSERT INTO ReplayBuffer (Id, State, Action, Reward, NextState) VALUES (@Id, @State, @Action, @Reward, @NextState)", connection))
+                using (var command = new SQLiteCommand("INSERT INTO ReplayBuffer (Id, State, AvailableActions, Action, Reward, NextState, NextAvailableActions) VALUES (@Id, @State, @AvailableActions, @Action, @Reward, @NextState, @NextAvailableActions)", connection))
                 {
                     if (set == 'A')
                     {
                         command.Parameters.AddWithValue("@Id", id);
                         command.Parameters.AddWithValue("@State", JsonConvert.SerializeObject(state1A));
+                        command.Parameters.AddWithValue("@AvailableActions", moveCountA);
                         command.Parameters.AddWithValue("@Action", actionA);
                         command.Parameters.AddWithValue("@Reward", rewardA);
                         command.Parameters.AddWithValue("@NextState", JsonConvert.SerializeObject(state2A));
@@ -370,10 +393,13 @@ namespace Chess
                     {
                         command.Parameters.AddWithValue("@Id", id);
                         command.Parameters.AddWithValue("@State", JsonConvert.SerializeObject(state1B));
+                        command.Parameters.AddWithValue("@AvailableActions", moveCountB);
                         command.Parameters.AddWithValue("@Action", actionB);
                         command.Parameters.AddWithValue("@Reward", rewardB);
                         command.Parameters.AddWithValue("@NextState", JsonConvert.SerializeObject(state2B));
                     }
+
+                    command.Parameters.AddWithValue("@NextAvailableActions", moveCount);
 
                     command.ExecuteNonQuery();
                 }

@@ -23,6 +23,7 @@ namespace Chess
         public static Random rng = new Random();
         public static ChessBot Magnus;
         public static int round = 0;
+        public static int turnCount = 0;
 
         public static List<Piece> pieces = new List<Piece>();
         static void Main()
@@ -39,12 +40,9 @@ namespace Chess
                     PlayGame();
                 }
                 ClearGame();
-                if (round < 1) { round++; }
-                else
+                if (Magnus.Levy.id > 5000)
                 {
                     Magnus.Train();
-                    round = 0;
-                    SaveNetworks();
                 }
             }
         }
@@ -140,6 +138,7 @@ namespace Chess
 
         static void PlayGame()
         {
+            turnCount++;
             turnTaken = false;
 
             CheckMoves(1);
@@ -266,6 +265,9 @@ namespace Chess
 
         static void CheckForGameOver()
         {
+            int r1 = 0;
+            int r2 = 0;
+
             if (!pieces.Exists(x => x.color == currentTurn & x.availableMoves.Count() > 0))
             {
                 playing = false;
@@ -276,23 +278,43 @@ namespace Chess
 
                 if (pieces.Exists(x => x.color != currentTurn & x.availableMoves.Exists(y => y[0] == king[0] & y[1] == king[1])))
                 {
+                    r1 = -100;
+                    r2 = 150;
                     Console.BackgroundColor = ConsoleColor.Green;
                     if (currentTurn == 1) { Console.Write("Black wins!"); }
                     else { Console.Write("White wins!"); }
                 }
                 else
                 {
+                    r1 = -50;
+                    r2 = -50;
                     Console.BackgroundColor = ConsoleColor.Red;
                     Console.Write("Stalemate!");
                 }
             }
-            else if (pieces.Count() == 2)
+            else if (pieces.Count() == 2 | turnCount > 50)
             {
+                r1 = -50;
+                r2 = -50;
                 playing = false;
+                turnCount = 0;
                 Console.SetCursorPosition(3, 10);
                 Console.ForegroundColor = ConsoleColor.Black;
                 Console.BackgroundColor = ConsoleColor.Red;
                 Console.Write("Stalemate!");
+            }
+
+            if (r1 != 0)
+            {
+                Magnus.SetInputs();
+                Magnus.Levy.SetReward(r1);
+                Magnus.Levy.Record(Magnus.network[0], 0, 0, true);
+                currentTurn *= -1;
+                Magnus.SetInputs();
+                Magnus.Levy.SetReward(r2);
+                Magnus.Levy.Record(Magnus.network[0], 0, 0, true);
+                Magnus.Levy.ClearStates('A');
+                Magnus.Levy.ClearStates('B');
             }
         }
 
@@ -311,16 +333,6 @@ namespace Chess
 
             File.WriteAllText("policyBias.json", JsonConvert.SerializeObject(biases));
             File.WriteAllText("policyWeights.json", JsonConvert.SerializeObject(weights));
-
-            FindValues(Magnus.Kasparov.network);
-
-            File.WriteAllText("qBias.json", JsonConvert.SerializeObject(biases));
-            File.WriteAllText("qWeights.json", JsonConvert.SerializeObject(weights));
-
-            FindValues(Magnus.targetKasparov.network);
-
-            File.WriteAllText("targetQBias.json", JsonConvert.SerializeObject(biases));
-            File.WriteAllText("targetQWeights.json", JsonConvert.SerializeObject(weights));
 
             void FindValues(List<Layer> network)
             {
@@ -368,26 +380,12 @@ namespace Chess
                 biases = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("policyBias.json"));
                 weights = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("policyWeights.json"));
 
-                ApplyValues(Magnus.network);
-
-                biases = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("qBias.json"));
-                weights = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("qWeights.json"));
-
-                ApplyValues(Magnus.Kasparov.network);
-
-                biases = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("targetQBias.json"));
-                weights = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("targetQWeights.json"));
-
-                ApplyValues(Magnus.targetKasparov.network);
+                if (biases != null) { ApplyValues(Magnus.network); }
             }
             else
             {
                 File.Create("policyBias.json");
                 File.Create("policyWeights.json");
-                File.Create("qBias.json");
-                File.Create("qWeights.json");
-                File.Create("targetQBias.json");
-                File.Create("targetQWeights.json");
             }
 
             void ApplyValues(List<Layer> network)
