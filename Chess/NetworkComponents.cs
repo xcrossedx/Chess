@@ -9,6 +9,7 @@ using System.Data.SQLite;
 using System.IO;
 using Newtonsoft.Json;
 using System.Diagnostics;
+using System.Threading;
 
 namespace Chess
 {
@@ -16,7 +17,10 @@ namespace Chess
     {
         public int type;
         public double bias;
+        public double biasGradient;
+        public List<double> partialBiasGradients;
         public double output;
+        public double partialDerivative;
         public List<Connection> weights;
 
         public Neuron(int t)
@@ -25,6 +29,7 @@ namespace Chess
             if (t == 1 | t == 3) { bias = 0.1; }
             else { bias = 0; }
             weights = new List<Connection>();
+            partialBiasGradients = new List<double>();
         }
 
         public void CalculateOutput()
@@ -42,7 +47,7 @@ namespace Chess
 
             if (type == 1 | type == 3)
             {
-                if (tempOutput < 0) { tempOutput *= 0.1; }
+                if (tempOutput < 0) { tempOutput = 0; }
             }
             else if (type == 2)
             {
@@ -55,19 +60,24 @@ namespace Chess
 
     class Connection
     {
+        public double gradient;
+        public List<double> partialGradients;
         public double weight;
         public Neuron neuron;
 
-        public Connection(Neuron n)
+        public Connection(int totalInOut, bool convolutional, Neuron n)
         {
-            weight = (double)Program.rng.Next(-100, 100) / (double)1000;
+            if (!convolutional) { weight = 0.1 + (Program.rng.Next(-1000, 1000) / (1000 * Math.Sqrt(totalInOut))); }
+            else { weight = 0.1 + (Program.rng.Next((int)(Math.Sqrt(6) * -1000), (int)(Math.Sqrt(6) * 1000)) / (1000 * Math.Sqrt(totalInOut))); }
             neuron = n;
+            partialGradients = new List<double>();
         }
 
         public Connection(Neuron n, double w)
         {
             weight = w;
             neuron = n;
+            partialGradients = new List<double>();
         }
     }
 
@@ -83,11 +93,6 @@ namespace Chess
 
             if (type < 3)
             {
-                if (type == 0)
-                {
-                    neurons = new List<Neuron>();
-                }
-
                 neuronGrid = new List<List<Neuron>>();
 
                 for (int x = 0; x < size; x++)
@@ -119,8 +124,8 @@ namespace Chess
                 {
                     foreach (Neuron pn in previousLayer.neurons)
                     {
-                        if (type != 4) { n.weights.Add(new Connection(pn)); }
-                        else { n.weights.Add(new Connection(pn, 0.1)); }
+                        if (type != 4) { n.weights.Add(new Connection(previousLayer.neurons.Count(), false, pn)); }
+                        else { n.weights.Add(new Connection(pn, 1)); }
                     }
                 }
 
@@ -130,7 +135,7 @@ namespace Chess
                     {
                         for (int y = 0; y < previousLayer.neuronGrid.Count(); y++)
                         {
-                            n.weights.Add(new Connection(previousLayer.neuronGrid[x][y]));
+                            n.weights.Add(new Connection((int)Math.Pow(previousLayer.neuronGrid.Count(), 2), false, previousLayer.neuronGrid[x][y]));
                         }
                     }
                 }
@@ -147,7 +152,8 @@ namespace Chess
                     {
                         for (int py = (y * stride) - range[0]; py <= (y * stride) + range[1]; py++)
                         {
-                            if (px >= 0 & py >= 0 & px < previousLayer.neuronGrid.Count() & py < previousLayer.neuronGrid.Count()) { neuronGrid[x][y].weights.Add(new Connection(previousLayer.neuronGrid[px][py])); }
+                            if (px >= 0 & py >= 0 & px < previousLayer.neuronGrid.Count() & py < previousLayer.neuronGrid.Count()) { neuronGrid[x][y].weights.Add(new Connection(previousLayer.neuronGrid[px][py], 0.1)); }
+                            //ADD A NEW METHOD TO INITIALIZE THE WEIGHT VALUES FOR THE CONVOLUTIONAL LAYERS!!!
                         }
                     }
                 }
@@ -234,6 +240,7 @@ namespace Chess
             if (!File.Exists("replayBuffer.db") | overwrite)
             {
                 File.Create("replayBuffer.db");
+                Thread.Sleep(3000);
                 id = 0;
             }
             else
@@ -358,22 +365,10 @@ namespace Chess
         {
             using(var connection = new SQLiteConnection(@"Data Source=replayBuffer.db;Version=3;"))
             {
-                bool open = false;
-                while (!open)
-                {
-                    try
-                    {
-                        connection.Open();
-                        open = true;
-                    }
-                    catch
-                    {
-                        CreateDatabase(true);
-                        open = false;
-                    }
-                }
+                try { connection.Open(); }
+                catch { CreateDatabase(true); }
 
-                using(var command = new SQLiteCommand("CREATE TABLE IF NOT EXISTS ReplayBuffer (Id INTEGER PRIMARY KEY, State TEXT, AvailableActions INTEGER, Action INTEGER, Reward DOUBLE, NextState TEXT, NextAvailableActions INTEGER)", connection))
+                using (var command = new SQLiteCommand("CREATE TABLE IF NOT EXISTS ReplayBuffer (Id INTEGER PRIMARY KEY, State TEXT, AvailableActions INTEGER, Action INTEGER, Reward DOUBLE, NextState TEXT, NextAvailableActions INTEGER)", connection))
                 {
                     command.ExecuteNonQuery();
                 }

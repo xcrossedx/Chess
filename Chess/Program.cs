@@ -43,6 +43,9 @@ namespace Chess
                 if (Magnus.Levy.id > 5000)
                 {
                     Magnus.Train();
+                    Thread.Sleep(5000);
+                    Magnus.Levy.CreateDatabase(true);
+                    SaveNetworks();
                 }
             }
         }
@@ -238,6 +241,7 @@ namespace Chess
             if (input == ConsoleKey.Escape)
             {
                 SaveNetworks();
+                if (inGame) { turnTaken = true; }
                 playing = false;
                 exit = true;
             }
@@ -338,24 +342,11 @@ namespace Chess
             {
                 foreach (Layer layer in network)
                 {
-                    if (layer.neurons != null)
+                    if (layer.type != 4)
                     {
-                        foreach (Neuron neuron in layer.neurons)
+                        if (layer.neurons != null)
                         {
-                            biases.Add(neuron.bias);
-
-                            foreach (Connection connection in neuron.weights)
-                            {
-                                weights.Add(connection.weight);
-                            }
-                        }
-                    }
-
-                    if (layer.neuronGrid != null)
-                    {
-                        foreach (List<Neuron> list in layer.neuronGrid)
-                        {
-                            foreach (Neuron neuron in list)
+                            foreach (Neuron neuron in layer.neurons)
                             {
                                 biases.Add(neuron.bias);
 
@@ -365,9 +356,27 @@ namespace Chess
                                 }
                             }
                         }
+
+                        if (layer.neuronGrid != null)
+                        {
+                            foreach (List<Neuron> list in layer.neuronGrid)
+                            {
+                                foreach (Neuron neuron in list)
+                                {
+                                    biases.Add(neuron.bias);
+
+                                    foreach (Connection connection in neuron.weights)
+                                    {
+                                        weights.Add(connection.weight);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
+
+            Thread.Sleep(3000);
         }
 
         static void CheckForNetworks()
@@ -377,10 +386,13 @@ namespace Chess
 
             if (File.Exists("policyBias.json"))
             {
-                biases = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("policyBias.json"));
-                weights = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("policyWeights.json"));
+                List<double> bTemp = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("policyBias.json"));
+                List<double> wTemp = JsonConvert.DeserializeObject<List<double>>(File.ReadAllText("policyWeights.json"));
 
-                if (biases != null) { ApplyValues(Magnus.network); }
+                if (bTemp != null) { biases.AddRange(bTemp); }
+                if (wTemp != null) { weights.AddRange(wTemp); }
+
+                if (bTemp != null) { ApplyValues(Magnus.network); }
             }
             else
             {
@@ -393,35 +405,39 @@ namespace Chess
                 int biasIndex = 0;
                 int weightIndex = 0;
 
-                for (int layer = 0; layer < network.Count(); layer++)
+                foreach (Layer layer in network)
                 {
-                    if (network[layer].neurons != null)
+                    if (layer.type != 4)
                     {
-                        for (int neuron = 0; neuron < network[layer].neurons.Count(); neuron++)
+                        if (layer.neurons != null)
                         {
-                            network[layer].neurons[neuron].bias = biases[biasIndex];
-                            biasIndex++;
-
-                            for (int connection = 0; connection < network[layer].neurons[neuron].weights.Count(); connection++)
+                            foreach (Neuron neuron in layer.neurons)
                             {
-                                network[layer].neurons[neuron].weights[connection].weight = weights[weightIndex];
-                                weightIndex++;
+                                neuron.bias = biases[biasIndex];
+                                biasIndex++;
+
+                                foreach (Connection connection in neuron.weights)
+                                {
+                                    connection.weight = weights[weightIndex];
+                                    weightIndex++;
+                                }
                             }
                         }
-                    }
 
-                    if (network[layer].neuronGrid != null)
-                    {
-                        for (int list = 0; list < network[layer].neuronGrid.Count(); list++)
+                        if (layer.neuronGrid != null)
                         {
-                            for (int neuron = 0; neuron < network[layer].neuronGrid[list].Count(); neuron++)
+                            foreach (List<Neuron> list in layer.neuronGrid)
                             {
-                                network[layer].neuronGrid[list][neuron].bias = biases[biasIndex];
-
-                                for (int connection = 0; connection < network[layer].neuronGrid[list][neuron].weights.Count(); connection++)
+                                foreach (Neuron neuron in list)
                                 {
-                                    network[layer].neuronGrid[list][neuron].weights[connection].weight = weights[weightIndex];
-                                    weightIndex++;
+                                    neuron.bias = biases[biasIndex];
+                                    biasIndex++;
+
+                                    foreach (Connection connection in neuron.weights)
+                                    {
+                                        connection.weight = weights[weightIndex];
+                                        weightIndex++;
+                                    }
                                 }
                             }
                         }

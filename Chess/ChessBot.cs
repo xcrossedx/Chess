@@ -8,6 +8,8 @@ using System.IO;
 using System.Data.SQLite;
 using Newtonsoft.Json;
 using System.Security.Cryptography.X509Certificates;
+using System.ComponentModel;
+using System.Linq.Expressions;
 
 namespace Chess
 {
@@ -26,8 +28,8 @@ namespace Chess
             network.Add(new Layer(0, 8));
             network.Add(new Layer(1, 8));
             network[1].Connect(network[0], new int[] { -2, 2 }, 1);
-            network.Add(new Layer(2, 4));
-            network[2].Connect(network[1], new int[] { 0, 1 }, 2);
+            network.Add(new Layer(1, 4));
+            network[2].Connect(network[1], new int[] { -1, 2 }, 2);
             network.Add(new Layer(1, 4));
             network[3].Connect(network[2], new int[] { -1, 1 }, 1);
             network.Add(new Layer(3, 128));
@@ -63,6 +65,9 @@ namespace Chess
                     {
                         network[0].neuronGrid[x][y].output = 0;
                     }
+
+                    network[0].neuronGrid[x][y].output += 6;
+                    network[0].neuronGrid[x][y].output /= 12;
                 }
             }
         }
@@ -95,11 +100,11 @@ namespace Chess
             double max = 0;
             int moveIndex = 0;
 
-            double epsilon = 10 + 990 * Math.Exp(-0.25 * iteration);
+            double epsilon = 10000 / 1 + (0.1 * iteration);
 
             SetInputs();
 
-            if (Program.rng.Next(0, 1000) > epsilon)
+            if (Program.rng.Next(0, 10000) > epsilon)
             {
                 SetOutputs(moves.Count());
 
@@ -127,11 +132,47 @@ namespace Chess
             int max = Levy.FindMaxReplayID();
             List<int> batch = new List<int>();
 
-            while (batch.Count() < 100)
+            while (batch.Count() < 250)
             {
                 int sample = Program.rng.Next(0, max);
 
                 if (!batch.Contains(sample)) { batch.Add(sample); }
+            }
+
+            foreach (Layer l in network)
+            {
+                if (l.neurons != null)
+                {
+                    foreach (Neuron n in l.neurons)
+                    {
+                        n.partialDerivative = 0;
+                        n.biasGradient = 0;
+                        n.partialBiasGradients.Clear();
+
+                        foreach (Connection c in n.weights)
+                        {
+                            c.partialGradients.Clear();
+                        }
+                    }
+                }
+
+                if (l.neuronGrid != null)
+                {
+                    foreach (List<Neuron> li in l.neuronGrid)
+                    {
+                        foreach (Neuron n in li)
+                        {
+                            n.partialDerivative = 0;
+                            n.biasGradient = 0;
+                            n.partialBiasGradients.Clear();
+
+                            foreach (Connection c in n.weights)
+                            {
+                                c.partialGradients.Clear();
+                            }
+                        }
+                    }
+                }
             }
 
             foreach (int id in batch)
@@ -154,25 +195,6 @@ namespace Chess
                 {
                     foreach (Neuron n in l)
                     {
-                        n.output = state[i];
-                        i++;
-                    }
-                }
-
-                SetOutputs(availableActions);
-                Activate();
-
-                foreach (Neuron n in network[6].neurons)
-                {
-                    if (n.output > Qvalue) { Qvalue = n.output; }
-                }
-
-                i = 0;
-
-                foreach (List<Neuron> l in network[0].neuronGrid)
-                {
-                    foreach (Neuron n in l)
-                    {
                         n.output = nextState[i];
                         i++;
                     }
@@ -186,10 +208,177 @@ namespace Chess
                     if (n.output > targetQvalue) { targetQvalue = n.output; }
                 }
 
+                i = 0;
+
+                foreach (List<Neuron> l in network[0].neuronGrid)
+                {
+                    foreach (Neuron n in l)
+                    {
+                        n.output = state[i];
+                        i++;
+                    }
+                }
+
+                SetOutputs(availableActions);
+                Activate();
+
+                Qvalue = network[6].neurons[action].output;
+
                 targetQvalue += reward;
+
+                for (int l = network.Count() - 1; l > 0; l--)
+                {
+                    if (l == network.Count() - 1)
+                    {
+                        foreach (Connection c in network[6].neurons[action].weights)
+                        {
+                            c.neuron.partialBiasGradients.Add(2 * (Qvalue - targetQvalue));
+                            c.neuron.partialDerivative = 2 * (Qvalue - targetQvalue);
+                        }
+                    }
+                    else
+                    {
+                        if (network[l].neurons != null)
+                        {
+                            foreach (Neuron n in network[l].neurons)
+                            {
+                                if ((n.type == 1 | n.type == 3) & n.output < 0) { n.partialDerivative = 0; }
+                                if (n.bias != 0) { n.partialBiasGradients.Add(n.partialDerivative); }
+
+                                foreach (Connection c in n.weights)
+                                {
+                                    c.partialGradients.Add(n.partialDerivative * c.neuron.output);
+                                    c.neuron.partialDerivative += n.partialDerivative * c.weight;
+                                }
+                            }
+                        }
+
+                        if (network[l].neuronGrid != null)
+                        {
+                            foreach (List<Neuron> list in network[l].neuronGrid)
+                            {
+                                foreach (Neuron n in list)
+                                {
+                                    if ((n.type == 1 | n.type == 3) & n.output < 0) { n.partialDerivative = 0; }
+                                    if (n.bias != 0) { n.partialBiasGradients.Add(n.partialDerivative); }
+
+                                    foreach (Connection c in n.weights)
+                                    {
+                                        c.partialGradients.Add(n.partialDerivative * c.neuron.output);
+                                        c.neuron.partialDerivative += n.partialDerivative * c.weight;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            Levy.CreateDatabase(true);
+            /*double tempBiasNorm = 0;
+            double tempWeightNorm = 0;
+            double biasNormAdjustment = 1;
+            double weightNormAdjustment = 1;
+
+            foreach (Layer l in network)
+            {
+                if (l.neurons != null)
+                {
+                    foreach (Neuron n in l.neurons)
+                    {
+                        if (n.bias != 0)
+                        {
+                            int numberOfGradients = n.partialBiasGradients.Count();
+                            n.biasGradient = n.partialBiasGradients.Sum() / numberOfGradients;
+                            tempBiasNorm += Math.Pow(n.biasGradient, 2);
+                        }
+
+                        foreach (Connection c in n.weights)
+                        {
+                            int numberOfGradients = c.partialGradients.Count();
+                            c.gradient = c.partialGradients.Sum() / numberOfGradients;
+                            tempWeightNorm += Math.Pow(c.gradient, 2);
+                        }
+                    }
+                }
+
+                if (l.neuronGrid != null)
+                {
+                    foreach (List<Neuron> list in l.neuronGrid)
+                    {
+                        foreach (Neuron n in list)
+                        {
+                            if (n.bias != 0)
+                            {
+                                int numberOfGradients = n.partialBiasGradients.Count();
+                                n.biasGradient = n.partialBiasGradients.Sum() / numberOfGradients;
+                                tempBiasNorm += Math.Pow(n.biasGradient, 2);
+                            }
+
+                            foreach (Connection c in n.weights)
+                            {
+                                int numberOfGradients = c.partialGradients.Count();
+                                c.gradient = c.partialGradients.Sum() / numberOfGradients;
+                                tempWeightNorm += Math.Pow(c.gradient, 2);
+                            }
+                        }
+                    }
+                }
+            }
+
+            double biasNorm = Math.Sqrt(tempBiasNorm);
+            double weightNorm = Math.Sqrt(tempWeightNorm);
+            Debug.WriteLine($"{biasNorm}, {weightNorm}");
+            if (biasNorm > 1) { biasNormAdjustment = 1 / biasNorm; }
+            if (weightNorm > 1) { weightNormAdjustment = 1 / weightNorm; } */
+
+            double biasLearningRate = 0.00001;
+            double weightLearningRate = 0.0001;
+
+            foreach (Layer l in network)
+            {
+                if (l.neurons != null)
+                {
+                    foreach (Neuron n in l.neurons)
+                    {
+                        if (n.bias != 0)
+                        {
+                            int numberOfGradients = n.partialBiasGradients.Count();
+                            n.biasGradient = n.partialBiasGradients.Sum() / numberOfGradients;
+                            n.bias -= biasLearningRate * n.biasGradient;// * biasNormAdjustment;
+                        }
+
+                        foreach (Connection c in n.weights)
+                        {
+                            int numberOfGradients = c.partialGradients.Count();
+                            c.gradient = c.partialGradients.Sum() / numberOfGradients;
+                            c.weight -= weightLearningRate * c.gradient;// * weightNormAdjustment;
+                        }
+                    }
+                }
+
+                if (l.neuronGrid != null)
+                {
+                    foreach (List<Neuron> list in l.neuronGrid)
+                    {
+                        foreach (Neuron n in list)
+                        {
+                            if (n.bias != 0)
+                            {
+                                int numberOfGradients = n.partialBiasGradients.Count();
+                                n.biasGradient = n.partialBiasGradients.Sum() / numberOfGradients;
+                                n.bias -= biasLearningRate * n.biasGradient;// * biasNormAdjustment;
+                            }
+
+                            foreach (Connection c in n.weights)
+                            {
+                                int numberOfGradients = c.partialGradients.Count();
+                                c.gradient = c.partialGradients.Sum() / numberOfGradients;
+                                c.weight -= weightLearningRate * c.gradient;// * weightNormAdjustment;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         Tuple<int[], int, int, double, int[], int> GetSample(int id)
